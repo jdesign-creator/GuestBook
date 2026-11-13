@@ -53,7 +53,6 @@ async function guestPage(){
 
       <div id="cameraStage" class="camera-stage">
         <video id="guestCamera" autoplay playsinline muted></video>
-        <img id="cameraFrame" class="camera-frame hidden" alt="Selected photo frame">
         <div id="recordTimer" class="record-timer hidden">00:00</div>
       </div>
 
