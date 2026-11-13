@@ -58,23 +58,19 @@ async function guestPage(){
       </div>
 
       <div id="cameraActions" class="camera-actions">
-        <button id="switchCamera" class="secondary switch-camera-button" aria-label="Switch camera" title="Switch camera">
+        
+<button id="switchCamera" class="camera-control-button switch-camera-button" aria-label="Switch camera" title="Switch camera">
   <svg viewBox="0 0 64 64" aria-hidden="true">
-    <!-- Camera body -->
-    <path d="M17 19h7l3-6h10l3 6h7a5 5 0 0 1 5 5v17a5 5 0 0 1-5 5H17a5 5 0 0 1-5-5V24a5 5 0 0 1 5-5Z"/>
-    <!-- Camera lens -->
-    <circle cx="32" cy="32" r="9"/>
-    <!-- Flash -->
-    <circle cx="45" cy="25" r="2"/>
-    <!-- Circular switching arrows -->
-    <path d="M10 28a23 23 0 0 1 7-16"/>
-    <path d="M11 12h6v6"/>
-    <path d="M54 36a23 23 0 0 1-7 16"/>
-    <path d="M53 52h-6v-6"/>
+    <path d="M16 22h7l4-7h11l4 7h6a5 5 0 0 1 5 5v15a5 5 0 0 1-5 5H16a5 5 0 0 1-5-5V27a5 5 0 0 1 5-5Z"/>
+    <circle cx="33" cy="34" r="9"/>
+    <path d="M8 25a25 25 0 0 1 12-16"/>
+    <path d="M10 9h10v10"/>
+    <path d="M56 39a25 25 0 0 1-12 16"/>
+    <path d="M54 55H44V45"/>
   </svg>
 </button>
-       
-<button id="photoShutter" class="shutter-button" aria-label="Take photo">
+
+<button id="photoShutter" class="camera-control-button shutter-button" aria-label="Take photo">
   <svg viewBox="0 0 64 64" aria-hidden="true">
     <path d="M9 23 Q9 17 16 17 H25 L29 9 Q31 6 35 6 H43 Q47 6 49 10 L53 17 H57 Q63 17 63 23 V51 Q63 57 57 57 H16 Q9 57 9 51 Z"/>
     <circle cx="36" cy="36" r="13"/>
@@ -82,6 +78,7 @@ async function guestPage(){
     <circle cx="53" cy="25" r="2"/>
   </svg>
 </button>
+
 
         <button id="videoRecord" class="record-button hidden" aria-label="Start recording"><span></span></button>
       </div>
