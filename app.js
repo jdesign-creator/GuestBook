@@ -146,6 +146,7 @@ async function guestPage(){
     camera.srcObject=cameraStream;
     await new Promise((resolve,reject)=>{if(camera.readyState>=1)return resolve();camera.onloadedmetadata=resolve;camera.onerror=()=>reject(Error("Unable to start camera preview."));});
     await camera.play();
+    camera.classList.toggle("mirrored", facing === "user");
   }
   function setFrame(index){
     selectedFrame=(index+frameOptions.length)%frameOptions.length;
