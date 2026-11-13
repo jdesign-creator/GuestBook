@@ -103,6 +103,9 @@ async function guestPage(){
   const cameraFrame=$("#cameraFrame"), framePicker=$("#framePicker"), photoReview=$("#photoReview"), videoReview=$("#videoReview");
   let facing="environment", currentMode="", photoBlob=null, videoBlob=null, photoUrl="", videoUrl="", frameUrl="";
   let selectedFrame=cfg.frameUrl?0:1, recorderInstance=null, chunks=[], recordingStarted=0, timerHandle=null, uploading=false;
+  let videoMirrorCanvas = null;
+  let videoRenderFrameId = null;
+  let videoRecordingStream = null;
   const frameOptions=cfg.frameUrl?[{name:"Event Frame",url:API+cfg.frameUrl},{name:"No Frame",url:null}]:[{name:"No Frame",url:null}];
   let frameImage=null;
 
@@ -124,6 +127,7 @@ async function guestPage(){
     if(videoUrl){URL.revokeObjectURL(videoUrl);videoUrl="";}
   }
   function resetCapture(){
+    stopMirroredRecordingStream();
     stopTimer();
     if(recorderInstance && recorderInstance.state!=="inactive"){try{recorderInstance.onstop=null;recorderInstance.stop()}catch{}}
     stopCamera();
@@ -175,8 +179,26 @@ async function guestPage(){
   $("#photoShutter").onclick=async()=>{
     if(!cameraStream||!camera.videoWidth)return showStatus("Please wait for the camera to start.",true);
     const shot=document.createElement("canvas");shot.width=camera.videoWidth;shot.height=camera.videoHeight;
-    const ctx=shot.getContext("2d");ctx.drawImage(camera,0,0,shot.width,shot.height);
-    if(frameOptions[selectedFrame]?.url&&frameImage?.complete&&frameImage.naturalWidth)ctx.drawImage(frameImage,0,0,shot.width,shot.height);
+    
+    const ctx = shot.getContext("2d");
+    
+    // Mirror the captured image only when using the front camera
+    if (facing === "user") {
+        ctx.translate(shot.width, 0);
+        ctx.scale(-1, 1);
+    }
+    
+    ctx.drawImage(camera, 0, 0, shot.width, shot.height);
+    
+    // Keep the photo frame in its normal orientation
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    
+    if (frameOptions[selectedFrame]?.url &&
+        frameImage?.complete &&
+        frameImage.naturalWidth) {
+        ctx.drawImage(frameImage, 0, 0, shot.width, shot.height);
+    }
+
     photoBlob=await new Promise(resolve=>shot.toBlob(resolve,"image/jpeg",.94));
     if(!photoBlob)return showStatus("Unable to capture this photo. Please try again.",true);
     photoUrl=URL.createObjectURL(photoBlob);$("#photoResult").src=photoUrl;
@@ -192,16 +214,82 @@ async function guestPage(){
   };
 
   function formatTime(ms){const sec=Math.floor(ms/1000);return String(Math.floor(sec/60)).padStart(2,"0")+":"+String(sec%60).padStart(2,"0")}
+  
+function createMirroredRecordingStream() {
+    const canvas = document.createElement("canvas");
+
+    canvas.width = camera.videoWidth;
+    canvas.height = camera.videoHeight;
+
+    const ctx = canvas.getContext("2d");
+
+    videoMirrorCanvas = canvas;
+
+    function drawVideoFrame() {
+        if (!camera.videoWidth || !camera.videoHeight) {
+            videoRenderFrameId = requestAnimationFrame(drawVideoFrame);
+            return;
+        }
+
+        ctx.save();
+
+        // Mirror front camera recording
+        if (facing === "user") {
+            ctx.translate(canvas.width, 0);
+            ctx.scale(-1, 1);
+        }
+
+        ctx.drawImage(camera, 0, 0, canvas.width, canvas.height);
+        ctx.restore();
+
+        videoRenderFrameId = requestAnimationFrame(drawVideoFrame);
+    }
+
+    drawVideoFrame();
+
+    // Capture the mirrored canvas as a video stream
+    videoRecordingStream = canvas.captureStream(30);
+
+    // Preserve microphone audio
+    cameraStream.getAudioTracks().forEach(track => {
+        videoRecordingStream.addTrack(track);
+    });
+
+    return videoRecordingStream;
+}
+
+function stopMirroredRecordingStream() {
+    if (videoRenderFrameId !== null) {
+        cancelAnimationFrame(videoRenderFrameId);
+        videoRenderFrameId = null;
+    }
+
+    if (videoRecordingStream) {
+        videoRecordingStream.getVideoTracks().forEach(track => track.stop());
+        videoRecordingStream = null;
+    }
+
+    videoMirrorCanvas = null;
+}
+
   function supportedRecorderType(){return ["video/webm;codecs=vp9,opus","video/webm;codecs=vp8,opus","video/webm"].find(t=>window.MediaRecorder?.isTypeSupported?.(t))||""}
   function startTimer(){recordingStarted=Date.now();const timer=$("#recordTimer");timer.textContent="00:00";timer.classList.remove("hidden");timerHandle=setInterval(()=>{timer.textContent=formatTime(Date.now()-recordingStarted)},250)}
   $("#videoRecord").onclick=()=>{
     if(!cameraStream)return showStatus("Please wait for the camera to start.",true);
     if(!recorderInstance||recorderInstance.state==="inactive"){
       try{
-        chunks=[];const mimeType=supportedRecorderType();recorderInstance=new MediaRecorder(cameraStream,mimeType?{mimeType}:undefined);
+        chunks = [];
+        const mimeType = supportedRecorderType();
+        const mirroredStream = createMirroredRecordingStream();
+        
+        recorderInstance = new MediaRecorder(
+            mirroredStream,
+            mimeType ? { mimeType } : undefined
+        );
         recorderInstance.ondataavailable=e=>{if(e.data?.size)chunks.push(e.data)};
         recorderInstance.onerror=()=>showStatus("Recording failed. Please try again.",true);
         recorderInstance.onstop=()=>{
+          stopMirroredRecordingStream();
           stopTimer();videoBlob=new Blob(chunks,{type:recorderInstance.mimeType||"video/webm"});
           if(videoBlob.size>500*1024*1024){videoBlob=null;showStatus("This video exceeds 500 MB. Please record a shorter video.",true);return;}
           videoUrl=URL.createObjectURL(videoBlob);const player=$("#videoResult");player.src=videoUrl;player.currentTime=0;player.play().catch(()=>{});
@@ -209,6 +297,7 @@ async function guestPage(){
           stopCamera();cameraStage.classList.add("hidden");$("#cameraActions").classList.add("hidden");videoReview.classList.remove("hidden");
           $("#captureHint").textContent="Your video is previewing on loop. Retake it or upload it to the event gallery.";
         };
+        
         recorderInstance.start(1000);$("#videoRecord").classList.add("is-recording");$("#videoRecord").setAttribute("aria-label","Stop recording");startTimer();
       }catch(e){showStatus("Unable to start video recording: "+e.message,true)}
     }else if(recorderInstance.state==="recording"){
