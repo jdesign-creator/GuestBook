@@ -73,7 +73,16 @@ async function guestPage(){
     <path d="M53 52h-6v-6"/>
   </svg>
 </button>
-        <button id="photoShutter" class="shutter-button" aria-label="Take photo"><span class="camera-glyph">📷</span></button>
+       
+<button id="photoShutter" class="shutter-button" aria-label="Take photo">
+  <svg viewBox="0 0 64 64" aria-hidden="true">
+    <path d="M9 23 Q9 17 16 17 H25 L29 9 Q31 6 35 6 H43 Q47 6 49 10 L53 17 H57 Q63 17 63 23 V51 Q63 57 57 57 H16 Q9 57 9 51 Z"/>
+    <circle cx="36" cy="36" r="13"/>
+    <circle cx="36" cy="36" r="9"/>
+    <circle cx="53" cy="25" r="2"/>
+  </svg>
+</button>
+
         <button id="videoRecord" class="record-button hidden" aria-label="Start recording"><span></span></button>
       </div>
 
