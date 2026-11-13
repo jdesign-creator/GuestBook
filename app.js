@@ -83,6 +83,7 @@ async function guestPage(){
   const cameraFrame=$("#cameraFrame"), framePicker=$("#framePicker"), photoReview=$("#photoReview"), videoReview=$("#videoReview");
   let facing="environment", currentMode="", photoBlob=null, videoBlob=null, photoUrl="", videoUrl="", frameUrl="";
   let selectedFrame=cfg.frameUrl?0:1, recorderInstance=null, chunks=[], recordingStarted=0, timerHandle=null, uploading=false;
+  let recordingCanvas=null, recordingStream=null, recordingRaf=0;
   const frameOptions=cfg.frameUrl?[{name:"Event Frame",url:API+cfg.frameUrl},{name:"No Frame",url:null}]:[{name:"No Frame",url:null}];
   let frameImage=null;
 
@@ -91,12 +92,39 @@ async function guestPage(){
     frameImage.crossOrigin="anonymous";
     frameImage.src=API+cfg.frameUrl;
     cameraFrame.src=API+cfg.frameUrl;
-    frameImage.onload=()=>{if(currentMode==="photo"&&!camera.classList.contains("hidden"))cameraFrame.classList.toggle("hidden",!frameOptions[selectedFrame]?.url)};
+    frameImage.onload=()=>{if(!cameraStage.classList.contains("hidden"))cameraFrame.classList.toggle("hidden",!frameOptions[selectedFrame]?.url)};
   }
 
   function stopCamera(){
     if(cameraStream){cameraStream.getTracks().forEach(track=>track.stop());cameraStream=null;}
     camera.srcObject=null;
+  }
+  function stopCompositeRecording(){
+    if(recordingRaf)cancelAnimationFrame(recordingRaf);
+    recordingRaf=0;
+    if(recordingStream){recordingStream.getTracks().forEach(track=>track.stop());recordingStream=null;}
+    recordingCanvas=null;
+  }
+  function createRecordingStream(){
+    if(!camera.videoWidth||!camera.videoHeight)throw Error("Camera is not ready yet. Please try again.");
+    if(!HTMLCanvasElement.prototype.captureStream)throw Error("This browser does not support framed video recording. Please use an updated Chrome or Safari.");
+    if(frameOptions[selectedFrame]?.url&&(!frameImage?.complete||!frameImage.naturalWidth))throw Error("The event frame is still loading. Please wait a moment and try again.");
+    recordingCanvas=document.createElement("canvas");
+    recordingCanvas.width=camera.videoWidth;
+    recordingCanvas.height=camera.videoHeight;
+    const ctx=recordingCanvas.getContext("2d");
+    const drawFrame=()=>{
+      if(!recordingCanvas)return;
+      ctx.drawImage(camera,0,0,recordingCanvas.width,recordingCanvas.height);
+      if(frameOptions[selectedFrame]?.url&&frameImage?.complete&&frameImage.naturalWidth){
+        ctx.drawImage(frameImage,0,0,recordingCanvas.width,recordingCanvas.height);
+      }
+      recordingRaf=requestAnimationFrame(drawFrame);
+    };
+    drawFrame();
+    recordingStream=recordingCanvas.captureStream(30);
+    cameraStream.getAudioTracks().forEach(track=>recordingStream.addTrack(track));
+    return recordingStream;
   }
   function stopTimer(){if(timerHandle){clearInterval(timerHandle);timerHandle=null;}}
   function clearPreviewUrls(){
@@ -107,12 +135,13 @@ async function guestPage(){
     stopTimer();
     if(recorderInstance && recorderInstance.state!=="inactive"){try{recorderInstance.onstop=null;recorderInstance.stop()}catch{}}
     stopCamera();
+    stopCompositeRecording();
     const oldPlayer=$("#videoResult");if(oldPlayer){oldPlayer.pause();oldPlayer.removeAttribute("src");oldPlayer.load();}
     clearPreviewUrls();photoBlob=null;videoBlob=null;chunks=[];recorderInstance=null;uploading=false;
     photoReview.classList.add("hidden");videoReview.classList.add("hidden");cameraStage.classList.remove("hidden");$("#cameraActions").classList.remove("hidden");
     $("#videoProgressWrap").classList.add("hidden");$("#videoProgressBar").style.width="0%";
     $("#uploadPhoto").disabled=false;$("#uploadVideo").disabled=false;
-    cameraFrame.classList.toggle("hidden",currentMode!=="photo"||!frameOptions[selectedFrame]?.url);
+    cameraFrame.classList.toggle("hidden",!frameOptions[selectedFrame]?.url);
     $("#recordTimer").classList.add("hidden");
   }
   async function openCamera(withAudio){
@@ -138,11 +167,11 @@ async function guestPage(){
   async function enterMode(which){
     currentMode=which;resetCapture();home.classList.add("hidden");mode.classList.remove("hidden");
     $("#modeTitle").textContent=which==="photo"?"Take Photo":"Take Video";
-    framePicker.classList.toggle("hidden",which!=="photo");
+    framePicker.classList.remove("hidden");
     $("#photoShutter").classList.toggle("hidden",which!=="photo");
     $("#videoRecord").classList.toggle("hidden",which!=="video");
-    cameraFrame.classList.toggle("hidden",which!=="photo"||!frameOptions[selectedFrame]?.url);
-    $("#captureHint").textContent=which==="photo"?"Choose a frame, then tap the camera button to capture your photo.":"Tap the square to start recording. Tap the red button to stop.";
+    cameraFrame.classList.toggle("hidden",!frameOptions[selectedFrame]?.url);
+    $("#captureHint").textContent=which==="photo"?"Choose a frame, then tap the camera button to capture your photo.":"Choose a frame, then tap the square to start recording. The frame will appear in your video.";
     setFrame(selectedFrame);
     try{await openCamera(which==="video");$("#cameraActions").classList.remove("hidden");}
     catch(e){showStatus(e.message,true);mode.classList.add("hidden");home.classList.remove("hidden");}
@@ -178,7 +207,7 @@ async function guestPage(){
     if(!cameraStream)return showStatus("Please wait for the camera to start.",true);
     if(!recorderInstance||recorderInstance.state==="inactive"){
       try{
-        chunks=[];const mimeType=supportedRecorderType();recorderInstance=new MediaRecorder(cameraStream,mimeType?{mimeType}:undefined);
+        chunks=[];const mimeType=supportedRecorderType();const captureStream=createRecordingStream();recorderInstance=new MediaRecorder(captureStream,mimeType?{mimeType}:undefined);
         recorderInstance.ondataavailable=e=>{if(e.data?.size)chunks.push(e.data)};
         recorderInstance.onerror=()=>showStatus("Recording failed. Please try again.",true);
         recorderInstance.onstop=()=>{
@@ -186,11 +215,11 @@ async function guestPage(){
           if(videoBlob.size>500*1024*1024){videoBlob=null;showStatus("This video exceeds 500 MB. Please record a shorter video.",true);return;}
           videoUrl=URL.createObjectURL(videoBlob);const player=$("#videoResult");player.src=videoUrl;player.currentTime=0;player.play().catch(()=>{});
           $("#videoDetails").textContent=`Video ready · ${(videoBlob.size/1024/1024).toFixed(1)} MB`;
-          stopCamera();cameraStage.classList.add("hidden");$("#cameraActions").classList.add("hidden");videoReview.classList.remove("hidden");
-          $("#captureHint").textContent="Your video is previewing on loop. Retake it or upload it to the event gallery.";
+          stopCamera();stopCompositeRecording();cameraStage.classList.add("hidden");$("#cameraActions").classList.add("hidden");videoReview.classList.remove("hidden");
+          $("#captureHint").textContent="Your video is previewing on loop with the selected frame included. Retake it or upload it to the event gallery.";
         };
         recorderInstance.start(1000);$("#videoRecord").classList.add("is-recording");$("#videoRecord").setAttribute("aria-label","Stop recording");startTimer();
-      }catch(e){showStatus("Unable to start video recording: "+e.message,true)}
+      }catch(e){stopCompositeRecording();showStatus("Unable to start video recording: "+e.message,true)}
     }else if(recorderInstance.state==="recording"){
       recorderInstance.stop();$("#videoRecord").classList.remove("is-recording");$("#videoRecord").setAttribute("aria-label","Start recording");
     }
