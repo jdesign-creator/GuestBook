@@ -58,7 +58,21 @@ async function guestPage(){
       </div>
 
       <div id="cameraActions" class="camera-actions">
-        <button id="switchCamera" class="secondary switch-camera-button" aria-label="Switch camera" title="Switch camera"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 3h5v5M4 20l5-5M21 3l-7 7M3 16v5h5M3 8V3h5M3 3l7 7M21 16v5h-5M21 21l-7-7"/></svg></button>
+        <button id="switchCamera" class="secondary switch-camera-button" aria-label="Switch camera" title="Switch camera">
+  <svg viewBox="0 0 64 64" aria-hidden="true">
+    <!-- Camera body -->
+    <path d="M17 19h7l3-6h10l3 6h7a5 5 0 0 1 5 5v17a5 5 0 0 1-5 5H17a5 5 0 0 1-5-5V24a5 5 0 0 1 5-5Z"/>
+    <!-- Camera lens -->
+    <circle cx="32" cy="32" r="9"/>
+    <!-- Flash -->
+    <circle cx="45" cy="25" r="2"/>
+    <!-- Circular switching arrows -->
+    <path d="M10 28a23 23 0 0 1 7-16"/>
+    <path d="M11 12h6v6"/>
+    <path d="M54 36a23 23 0 0 1-7 16"/>
+    <path d="M53 52h-6v-6"/>
+  </svg>
+</button>
         <button id="photoShutter" class="shutter-button" aria-label="Take photo"><span class="camera-glyph">📷</span></button>
         <button id="videoRecord" class="record-button hidden" aria-label="Start recording"><span></span></button>
       </div>
