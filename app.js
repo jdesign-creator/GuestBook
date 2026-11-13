@@ -58,7 +58,7 @@ async function guestPage(){
       </div>
 
       <div id="cameraActions" class="camera-actions">
-        <button id="switchCamera" class="secondary small-action">Switch camera</button>
+        <button id="switchCamera" class="secondary switch-camera-button" aria-label="Switch camera" title="Switch camera"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 3h5v5M4 20l5-5M21 3l-7 7M3 16v5h5M3 8V3h5M3 3l7 7M21 16v5h-5M21 21l-7-7"/></svg></button>
         <button id="photoShutter" class="shutter-button" aria-label="Take photo"><span class="camera-glyph">📷</span></button>
         <button id="videoRecord" class="record-button hidden" aria-label="Start recording"><span></span></button>
       </div>
@@ -91,7 +91,7 @@ async function guestPage(){
     frameImage.crossOrigin="anonymous";
     frameImage.src=API+cfg.frameUrl;
     cameraFrame.src=API+cfg.frameUrl;
-    frameImage.onload=()=>{if(currentMode==="photo"&&!camera.classList.contains("hidden"))cameraFrame.classList.toggle("hidden",!frameOptions[selectedFrame]?.url)};
+    frameImage.onload=()=>{if(currentMode==="photo"&&!cameraStage.classList.contains("hidden"))cameraFrame.classList.toggle("hidden",!frameOptions[selectedFrame]?.url)};
   }
 
   function stopCamera(){
@@ -143,7 +143,7 @@ async function guestPage(){
     $("#videoRecord").classList.toggle("hidden",which!=="video");
     cameraFrame.classList.toggle("hidden",which!=="photo"||!frameOptions[selectedFrame]?.url);
     $("#captureHint").textContent=which==="photo"?"Choose a frame, then tap the camera button to capture your photo.":"Tap the square to start recording. Tap the red button to stop.";
-    setFrame(selectedFrame);
+    if(which==="photo")setFrame(selectedFrame);
     try{await openCamera(which==="video");$("#cameraActions").classList.remove("hidden");}
     catch(e){showStatus(e.message,true);mode.classList.add("hidden");home.classList.remove("hidden");}
   }
