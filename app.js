@@ -13,48 +13,203 @@ function pageShell(title, desc){app.innerHTML=`<section class="panel"><p class="
 function showStatus(msg,bad=false){const s=document.getElementById("status");if(s){s.textContent=msg;s.className="status"+(bad?" error":"");s.classList.remove("hidden")}}
 
 async function getConfig(){return api("/api/config")}
-async function startUpload(file, kind, framed=false){
+async function startUpload(file, kind, framed=false, onProgress=null){
   const init=await api("/api/uploads/init",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name:file.name||`${kind}-${Date.now()}`,mimeType:file.type||"application/octet-stream",size:file.size,kind,framed})});
   const chunkSize=8*1024*1024;let offset=0;
   while(offset<file.size){const end=Math.min(offset+chunkSize,file.size), chunk=file.slice(offset,end);
     const r=await fetch(API+"/api/uploads/"+init.uploadId+"/chunk",{method:"PUT",headers:{"Content-Type":"application/octet-stream","Content-Range":`bytes ${offset}-${end-1}/${file.size}`,...(adminToken?{Authorization:"Bearer "+adminToken}:{})},body:chunk});
     if(!r.ok){let m="Upload chunk failed";try{m=(await r.json()).error||m}catch{}throw Error(m)}
-    offset=end;const p=Math.round(offset/file.size*100);showStatus(`Uploading ${kind}: ${p}%`);
+    offset=end;const p=Math.round(offset/file.size*100);if(onProgress)onProgress(p);else showStatus(`Uploading ${kind}: ${p}%`);
   }
   await api("/api/uploads/"+init.uploadId+"/complete",{method:"POST"});
 }
 function blobFile(blob,name,type){return new File([blob],name,{type:type||blob.type})}
 
 async function guestPage(){
-  pageShell("Share the moments.","Take a photo or record a video directly in this page. Uploads from your phone gallery are not available.");
+  pageShell("Share the moments.","Capture a photo or video directly with your camera. No gallery uploads are available.");
   const cfg=await getConfig();
-  const p=el("section",{class:"panel"});
-  p.innerHTML=`<h2>1. Take a photo</h2><p class="muted">Allow camera access. Your custom event frame will appear over the preview.</p>
-    <div class="capture"><video id="camera" autoplay playsinline muted></video><canvas id="overlay"></canvas></div>
-    <div class="actions"><button id="startCam">Open camera</button><button id="switchCam" class="secondary">Switch camera</button><button id="snap">Take photo</button></div>
-    <img id="photoPreview" class="preview hidden"><div class="actions"><button id="uploadPhoto" disabled>Upload photo</button><button id="retake" class="secondary hidden">Retake</button></div>
-    <hr style="border-color:#2b3b52;margin:24px 0">
-    <h2>2. Record a video</h2><p class="muted">Maximum video size: 500 MB. Keep this page open while uploading.</p>
-    <div class="actions"><button id="record">Start recording</button><button id="stopRecord" class="secondary" disabled>Stop recording</button><button id="uploadVideo" disabled>Upload video</button></div>
-    <p id="videoInfo" class="small"></p>`;
+  const p=el("section",{class:"panel guest-panel"});
+  p.innerHTML=`
+    <div id="guestHome" class="guest-home">
+      <h2>Capture a memory</h2>
+      <p class="muted">Choose how you would like to share your moment.</p>
+      <div class="mode-choices">
+        <button id="choosePhoto" class="mode-button"><span class="mode-icon">◎</span><strong>Take Photo</strong><small>Capture a framed photo</small></button>
+        <button id="chooseVideo" class="mode-button"><span class="mode-icon">▣</span><strong>Take Video</strong><small>Record a short video</small></button>
+      </div>
+    </div>
+
+    <div id="captureMode" class="capture-mode hidden">
+      <div class="capture-heading">
+        <div><p class="gold small">GUEST CAMERA</p><h2 id="modeTitle">Take Photo</h2></div>
+        <button id="backHome" class="secondary">Back</button>
+      </div>
+
+      <div id="framePicker" class="frame-picker hidden">
+        <button id="framePrev" class="icon-button secondary" aria-label="Previous frame">‹</button>
+        <div class="frame-choice"><span id="frameChoiceName">Event Frame</span><small>Swipe left or right to change</small></div>
+        <button id="frameNext" class="icon-button secondary" aria-label="Next frame">›</button>
+      </div>
+
+      <div id="cameraStage" class="camera-stage">
+        <video id="guestCamera" autoplay playsinline muted></video>
+        <img id="cameraFrame" class="camera-frame hidden" alt="Selected photo frame">
+        <div id="recordTimer" class="record-timer hidden">00:00</div>
+      </div>
+
+      <div id="cameraActions" class="camera-actions">
+        <button id="switchCamera" class="secondary small-action">Switch camera</button>
+        <button id="photoShutter" class="shutter-button" aria-label="Take photo"><span class="camera-glyph">📷</span></button>
+        <button id="videoRecord" class="record-button hidden" aria-label="Start recording"><span></span></button>
+      </div>
+
+      <div id="photoReview" class="review-area hidden">
+        <img id="photoResult" class="capture-result" alt="Your captured photo">
+        <div class="review-actions"><button id="retakePhoto" class="secondary">Retake</button><button id="uploadPhoto">Upload Photo</button></div>
+      </div>
+
+      <div id="videoReview" class="review-area hidden">
+        <video id="videoResult" class="capture-result" playsinline autoplay muted loop></video>
+        <p id="videoDetails" class="muted small"></p>
+        <div id="videoProgressWrap" class="upload-progress hidden"><div class="progress"><i id="videoProgressBar"></i></div><p id="videoProgressText" class="small">Preparing upload…</p></div>
+        <div class="review-actions"><button id="retakeVideo" class="secondary">Retake</button><button id="uploadVideo">Upload Video</button></div>
+      </div>
+      <p id="captureHint" class="muted small capture-hint"></p>
+    </div>`;
   app.append(p);
-  const video=p.querySelector("#camera"), preview=p.querySelector("#photoPreview"), canvas=p.querySelector("#overlay");
-  let facing="environment", photoBlob=null, videoBlob=null;
-  if(cfg.frameUrl){frameImage=new Image();frameImage.crossOrigin="anonymous";frameImage.src=cfg.frameUrl.startsWith("http")?cfg.frameUrl:(API+cfg.frameUrl);frameImage.onload=()=>drawOverlay();}
-  function drawOverlay(){canvas.width=video.videoWidth||640;canvas.height=video.videoHeight||480;const c=canvas.getContext("2d");c.clearRect(0,0,canvas.width,canvas.height);if(frameImage?.complete)c.drawImage(frameImage,0,0,canvas.width,canvas.height)}
-  async function openCamera(){if(cameraStream)cameraStream.getTracks().forEach(t=>t.stop());cameraStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:facing},audio:true});video.srcObject=cameraStream;video.onloadedmetadata=drawOverlay}
-  p.querySelector("#startCam").onclick=()=>openCamera().catch(e=>showStatus(e.message,true));
-  p.querySelector("#switchCam").onclick=()=>{facing=facing==="environment"?"user":"environment";openCamera().catch(e=>showStatus(e.message,true))};
-  p.querySelector("#snap").onclick=async()=>{if(!cameraStream)return showStatus("Open the camera first.",true);const c=document.createElement("canvas");c.width=video.videoWidth;c.height=video.videoHeight;c.getContext("2d").drawImage(video,0,0);photoBlob=await new Promise(r=>c.toBlob(r,"image/jpeg",.96));if(frameImage?.complete){const out=document.createElement("canvas");out.width=c.width;out.height=c.height;out.getContext("2d").drawImage(c,0,0);out.getContext("2d").drawImage(frameImage,0,0,c.width,c.height);photoBlob.framed=await new Promise(r=>out.toBlob(r,"image/png"))}preview.src=URL.createObjectURL(photoBlob);preview.classList.remove("hidden");p.querySelector("#uploadPhoto").disabled=false;p.querySelector("#retake").classList.remove("hidden")};
-  p.querySelector("#retake").onclick=()=>{photoBlob=null;preview.classList.add("hidden");p.querySelector("#uploadPhoto").disabled=true};
-  p.querySelector("#uploadPhoto").onclick=async()=>{try{if(!photoBlob) return;await startUpload(blobFile(photoBlob,"event-photo.jpg","image/jpeg"),"photo");if(photoBlob.framed)await startUpload(blobFile(photoBlob.framed,"event-photo-framed.png","image/png"),"framed-photo",true);showStatus("Photo uploaded. Thank you!");p.querySelector("#uploadPhoto").disabled=true}catch(e){showStatus(e.message,true)}};
-  p.querySelector("#record").onclick=()=>{if(!cameraStream)return showStatus("Open the camera first.",true);recordedChunks=[];recorder=new MediaRecorder(cameraStream);recorder.ondataavailable=e=>{if(e.data.size)recordedChunks.push(e.data)};recorder.onstop=()=>{videoBlob=new Blob(recordedChunks,{type:recorder.mimeType||"video/webm"});p.querySelector("#videoInfo").textContent=`Recorded ${(videoBlob.size/1024/1024).toFixed(1)} MB`;p.querySelector("#uploadVideo").disabled=videoBlob.size>500*1024*1024;if(videoBlob.size>500*1024*1024)showStatus("This video exceeds 500 MB. Please record a shorter clip.",true)};recorder.start(1000);p.querySelector("#record").disabled=true;p.querySelector("#stopRecord").disabled=false};
-  p.querySelector("#stopRecord").onclick=()=>{recorder?.stop();p.querySelector("#record").disabled=false;p.querySelector("#stopRecord").disabled=true};
-  p.querySelector("#uploadVideo").onclick=async()=>{try{await startUpload(blobFile(videoBlob,"event-video.webm",videoBlob.type),"video");showStatus("Video uploaded. Thank you!");p.querySelector("#uploadVideo").disabled=true}catch(e){showStatus(e.message,true)}};
-  const comments=el("section",{class:"panel"});comments.innerHTML=`<h2>Leave a message</h2><input id="nickname" maxlength="40" placeholder="Your name (optional)"><textarea id="commentText" maxlength="300" placeholder="Write a message for the couple…"></textarea><button id="sendComment">Post comment</button>`;app.append(comments);
+
+  const $=s=>p.querySelector(s);
+  const home=$("#guestHome"), mode=$("#captureMode"), camera=$("#guestCamera"), cameraStage=$("#cameraStage");
+  const cameraFrame=$("#cameraFrame"), framePicker=$("#framePicker"), photoReview=$("#photoReview"), videoReview=$("#videoReview");
+  let facing="environment", currentMode="", photoBlob=null, videoBlob=null, photoUrl="", videoUrl="", frameUrl="";
+  let selectedFrame=cfg.frameUrl?0:1, recorderInstance=null, chunks=[], recordingStarted=0, timerHandle=null, uploading=false;
+  const frameOptions=cfg.frameUrl?[{name:"Event Frame",url:API+cfg.frameUrl},{name:"No Frame",url:null}]:[{name:"No Frame",url:null}];
+  let frameImage=null;
+
+  if(cfg.frameUrl){
+    frameImage=new Image();
+    frameImage.crossOrigin="anonymous";
+    frameImage.src=API+cfg.frameUrl;
+    cameraFrame.src=API+cfg.frameUrl;
+    frameImage.onload=()=>{if(currentMode==="photo"&&!camera.classList.contains("hidden"))cameraFrame.classList.toggle("hidden",!frameOptions[selectedFrame]?.url)};
+  }
+
+  function stopCamera(){
+    if(cameraStream){cameraStream.getTracks().forEach(track=>track.stop());cameraStream=null;}
+    camera.srcObject=null;
+  }
+  function stopTimer(){if(timerHandle){clearInterval(timerHandle);timerHandle=null;}}
+  function clearPreviewUrls(){
+    if(photoUrl){URL.revokeObjectURL(photoUrl);photoUrl="";}
+    if(videoUrl){URL.revokeObjectURL(videoUrl);videoUrl="";}
+  }
+  function resetCapture(){
+    stopTimer();
+    if(recorderInstance && recorderInstance.state!=="inactive"){try{recorderInstance.onstop=null;recorderInstance.stop()}catch{}}
+    stopCamera();
+    const oldPlayer=$("#videoResult");if(oldPlayer){oldPlayer.pause();oldPlayer.removeAttribute("src");oldPlayer.load();}
+    clearPreviewUrls();photoBlob=null;videoBlob=null;chunks=[];recorderInstance=null;uploading=false;
+    photoReview.classList.add("hidden");videoReview.classList.add("hidden");cameraStage.classList.remove("hidden");$("#cameraActions").classList.remove("hidden");
+    $("#videoProgressWrap").classList.add("hidden");$("#videoProgressBar").style.width="0%";
+    $("#uploadPhoto").disabled=false;$("#uploadVideo").disabled=false;
+    cameraFrame.classList.toggle("hidden",currentMode!=="photo"||!frameOptions[selectedFrame]?.url);
+    $("#recordTimer").classList.add("hidden");
+  }
+  async function openCamera(withAudio){
+    stopCamera();
+    if(!navigator.mediaDevices?.getUserMedia)throw Error("Camera access is not supported in this browser. Please use a recent version of Chrome or Safari.");
+    cameraStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:facing},width:{ideal:1920},height:{ideal:1080}},audio:!!withAudio});
+    camera.srcObject=cameraStream;
+    await new Promise((resolve,reject)=>{if(camera.readyState>=1)return resolve();camera.onloadedmetadata=resolve;camera.onerror=()=>reject(Error("Unable to start camera preview."));});
+    await camera.play();
+  }
+  function setFrame(index){
+    selectedFrame=(index+frameOptions.length)%frameOptions.length;
+    $("#frameChoiceName").textContent=frameOptions[selectedFrame].name;
+    cameraFrame.classList.toggle("hidden",!frameOptions[selectedFrame].url);
+  }
+  function changeFrame(direction){if(frameOptions.length>1)setFrame(selectedFrame+direction);}
+  $("#framePrev").onclick=()=>changeFrame(-1);
+  $("#frameNext").onclick=()=>changeFrame(1);
+  let swipeX=0;
+  framePicker.addEventListener("pointerdown",e=>{swipeX=e.clientX});
+  framePicker.addEventListener("pointerup",e=>{const dx=e.clientX-swipeX;if(Math.abs(dx)>45)changeFrame(dx<0?1:-1)});
+
+  async function enterMode(which){
+    currentMode=which;resetCapture();home.classList.add("hidden");mode.classList.remove("hidden");
+    $("#modeTitle").textContent=which==="photo"?"Take Photo":"Take Video";
+    framePicker.classList.toggle("hidden",which!=="photo");
+    $("#photoShutter").classList.toggle("hidden",which!=="photo");
+    $("#videoRecord").classList.toggle("hidden",which!=="video");
+    cameraFrame.classList.toggle("hidden",which!=="photo"||!frameOptions[selectedFrame]?.url);
+    $("#captureHint").textContent=which==="photo"?"Choose a frame, then tap the camera button to capture your photo.":"Tap the square to start recording. Tap the red button to stop.";
+    setFrame(selectedFrame);
+    try{await openCamera(which==="video");$("#cameraActions").classList.remove("hidden");}
+    catch(e){showStatus(e.message,true);mode.classList.add("hidden");home.classList.remove("hidden");}
+  }
+  $("#choosePhoto").onclick=()=>enterMode("photo");
+  $("#chooseVideo").onclick=()=>enterMode("video");
+  $("#backHome").onclick=()=>{resetCapture();mode.classList.add("hidden");home.classList.remove("hidden");currentMode="";};
+  $("#switchCamera").onclick=async()=>{facing=facing==="environment"?"user":"environment";try{await openCamera(currentMode==="video")}catch(e){showStatus(e.message,true)}};
+
+  $("#photoShutter").onclick=async()=>{
+    if(!cameraStream||!camera.videoWidth)return showStatus("Please wait for the camera to start.",true);
+    const shot=document.createElement("canvas");shot.width=camera.videoWidth;shot.height=camera.videoHeight;
+    const ctx=shot.getContext("2d");ctx.drawImage(camera,0,0,shot.width,shot.height);
+    if(frameOptions[selectedFrame]?.url&&frameImage?.complete&&frameImage.naturalWidth)ctx.drawImage(frameImage,0,0,shot.width,shot.height);
+    photoBlob=await new Promise(resolve=>shot.toBlob(resolve,"image/jpeg",.94));
+    if(!photoBlob)return showStatus("Unable to capture this photo. Please try again.",true);
+    photoUrl=URL.createObjectURL(photoBlob);$("#photoResult").src=photoUrl;
+    stopCamera();cameraStage.classList.add("hidden");$("#cameraActions").classList.add("hidden");photoReview.classList.remove("hidden");
+    $("#captureHint").textContent="Review your photo. You can retake it or upload it to the event gallery.";
+  };
+  $("#retakePhoto").onclick=async()=>{resetCapture();try{await openCamera(false)}catch(e){showStatus(e.message,true)}};
+  $("#uploadPhoto").onclick=async()=>{
+    if(!photoBlob||uploading)return;uploading=true;$("#uploadPhoto").disabled=true;$("#retakePhoto").disabled=true;
+    try{await startUpload(blobFile(photoBlob,`event-photo-${Date.now()}.jpg`,"image/jpeg"),"photo",false,pct=>{$("#captureHint").textContent=`Uploading photo: ${pct}%`;});
+      resetCapture();mode.classList.add("hidden");home.classList.remove("hidden");currentMode="";showStatus("Photo uploaded. Thank you!");
+    }catch(e){uploading=false;$("#uploadPhoto").disabled=false;$("#retakePhoto").disabled=false;showStatus(e.message,true)}
+  };
+
+  function formatTime(ms){const sec=Math.floor(ms/1000);return String(Math.floor(sec/60)).padStart(2,"0")+":"+String(sec%60).padStart(2,"0")}
+  function supportedRecorderType(){return ["video/webm;codecs=vp9,opus","video/webm;codecs=vp8,opus","video/webm"].find(t=>window.MediaRecorder?.isTypeSupported?.(t))||""}
+  function startTimer(){recordingStarted=Date.now();const timer=$("#recordTimer");timer.textContent="00:00";timer.classList.remove("hidden");timerHandle=setInterval(()=>{timer.textContent=formatTime(Date.now()-recordingStarted)},250)}
+  $("#videoRecord").onclick=()=>{
+    if(!cameraStream)return showStatus("Please wait for the camera to start.",true);
+    if(!recorderInstance||recorderInstance.state==="inactive"){
+      try{
+        chunks=[];const mimeType=supportedRecorderType();recorderInstance=new MediaRecorder(cameraStream,mimeType?{mimeType}:undefined);
+        recorderInstance.ondataavailable=e=>{if(e.data?.size)chunks.push(e.data)};
+        recorderInstance.onerror=()=>showStatus("Recording failed. Please try again.",true);
+        recorderInstance.onstop=()=>{
+          stopTimer();videoBlob=new Blob(chunks,{type:recorderInstance.mimeType||"video/webm"});
+          if(videoBlob.size>500*1024*1024){videoBlob=null;showStatus("This video exceeds 500 MB. Please record a shorter video.",true);return;}
+          videoUrl=URL.createObjectURL(videoBlob);const player=$("#videoResult");player.src=videoUrl;player.currentTime=0;player.play().catch(()=>{});
+          $("#videoDetails").textContent=`Video ready · ${(videoBlob.size/1024/1024).toFixed(1)} MB`;
+          stopCamera();cameraStage.classList.add("hidden");$("#cameraActions").classList.add("hidden");videoReview.classList.remove("hidden");
+          $("#captureHint").textContent="Your video is previewing on loop. Retake it or upload it to the event gallery.";
+        };
+        recorderInstance.start(1000);$("#videoRecord").classList.add("is-recording");$("#videoRecord").setAttribute("aria-label","Stop recording");startTimer();
+      }catch(e){showStatus("Unable to start video recording: "+e.message,true)}
+    }else if(recorderInstance.state==="recording"){
+      recorderInstance.stop();$("#videoRecord").classList.remove("is-recording");$("#videoRecord").setAttribute("aria-label","Start recording");
+    }
+  };
+  $("#retakeVideo").onclick=async()=>{const player=$("#videoResult");player.pause();player.removeAttribute("src");player.load();resetCapture();try{await openCamera(true)}catch(e){showStatus(e.message,true)}};
+  $("#uploadVideo").onclick=async()=>{
+    if(!videoBlob||uploading)return;uploading=true;
+    const player=$("#videoResult");player.pause();
+    $("#retakeVideo").disabled=true;$("#uploadVideo").disabled=true;$("#videoProgressWrap").classList.remove("hidden");
+    try{
+      await startUpload(blobFile(videoBlob,`event-video-${Date.now()}.webm`,videoBlob.type),"video",false,pct=>{$("#videoProgressBar").style.width=pct+"%";$("#videoProgressText").textContent=`Uploading video… ${pct}%`;});
+      $("#videoProgressText").textContent="Upload complete!";resetCapture();mode.classList.add("hidden");home.classList.remove("hidden");currentMode="";showStatus("Video uploaded. Thank you!");
+    }catch(e){uploading=false;$("#retakeVideo").disabled=false;$("#uploadVideo").disabled=false;showStatus(e.message,true)}
+  };
+
+  const comments=el("section",{class:"panel"});
+  comments.innerHTML=`<h2>Leave a message</h2><input id="nickname" maxlength="40" placeholder="Your name (optional)"><textarea id="commentText" maxlength="300" placeholder="Write a message for the couple…"></textarea><button id="sendComment">Post comment</button>`;app.append(comments);
   comments.querySelector("#sendComment").onclick=async()=>{const message=comments.querySelector("#commentText").value.trim();if(!message)return;try{await api("/api/comments",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name:comments.querySelector("#nickname").value.trim(),message})});comments.querySelector("#commentText").value="";showStatus("Comment posted.")}catch(e){showStatus(e.message,true)}};
 }
-
 async function adminPage(){
   pageShell("Event administration","Configure your event, upload the custom PNG frame and moderate guest comments.");
   const box=el("section",{class:"panel"});app.append(box);
