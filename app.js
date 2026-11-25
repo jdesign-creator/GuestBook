@@ -402,19 +402,37 @@ async function livePage(){
     return;
   }
 
-  // Slideshow layout
-  app.innerHTML=`
-    <section class="live-show">
-      <div id="liveStage" class="live-stage"></div>
+// Slideshow layout
+app.innerHTML=`
+  <section class="live-show">
+    <div id="liveStage" class="live-stage"></div>
 
-      <div class="comment-ticker">
-        <div id="commentTrack" class="comment-track"></div>
-      </div>
-    </section>
-  `;
+    <div class="comment-ticker">
+      <div id="commentTrack" class="comment-track"></div>
+    </div>
+
+    <button id="full" class="fullscreen-button">
+      ⛶ Full Screen
+    </button>
+  </section>
+`;
 
   const stage=document.getElementById("liveStage");
   const commentTrack=document.getElementById("commentTrack");
+  // Full Screen button
+document.getElementById("full").onclick = async () => {
+  const liveShow = document.querySelector(".live-show");
+
+  try {
+    if (!document.fullscreenElement) {
+      await liveShow.requestFullscreen();
+    } else {
+      await document.exitFullscreen();
+    }
+  } catch (error) {
+    console.error("Fullscreen error:", error);
+  }
+};
 
   let paused=false;
   let slideIndex=0;
