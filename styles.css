@@ -267,3 +267,135 @@ footer{text-align: center;padding: 20px;font-size: 18px;}
     }
 }
 
+
+/* =========================================
+   LIVE WEDDING SLIDESHOW
+========================================= */
+
+.live-show {
+    position: relative;
+    width: 100%;
+    height: calc(100vh - 40px);
+    height: calc(100dvh - 40px);
+    min-height: 400px;
+    background: #05080e;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    border-radius: 12px;
+}
+
+/* Main slideshow area */
+.live-stage {
+    position: relative;
+    flex: 1;
+    min-height: 0;
+    width: 100%;
+    background: #05080e;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* Photos and videos */
+.live-media {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    background: #05080e;
+}
+
+/* Slide from right to left */
+.live-media.slide-in {
+    animation: liveSlideIn 1s ease-in-out both;
+}
+
+@keyframes liveSlideIn {
+    from {
+        transform: translateX(100%);
+    }
+    to {
+        transform: translateX(0);
+    }
+}
+
+/* Bottom comment ticker */
+.comment-ticker {
+    position: relative;
+    flex: 0 0 58px;
+    width: 100%;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    background: #111d2e;
+    border-top: 2px solid #d9b879;
+    white-space: nowrap;
+}
+
+.comment-track {
+    display: flex;
+    width: max-content;
+    align-items: center;
+    white-space: nowrap;
+    animation: commentsMoveRight 35s linear infinite;
+}
+
+.comment-ticker-text {
+    display: inline-block;
+    padding-right: 35px;
+    color: #ffffff;
+    font-size: 20px;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+/* Comments scroll from left to right */
+@keyframes commentsMoveRight {
+    from {
+        transform: translateX(-50%);
+    }
+    to {
+        transform: translateX(0);
+    }
+}
+
+/* Remove normal page margins for live show */
+body:has(.live-show) {
+    background: #05080e;
+}
+
+body:has(.live-show) .wrap {
+    max-width: none;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+}
+
+body:has(.live-show) .topbar,
+body:has(.live-show) footer {
+    display: none;
+}
+
+/* Mobile adjustments */
+@media(max-width:600px) {
+    .live-show {
+        height: 100vh;
+        height: 100dvh;
+        min-height: 300px;
+        border-radius: 0;
+    }
+
+    .comment-ticker {
+        flex-basis: 46px;
+    }
+
+    .comment-ticker-text {
+        font-size: 15px;
+    }
+}
+
+
+
