@@ -410,11 +410,13 @@ app.innerHTML=`
     <div class="comment-ticker">
       <div id="commentTrack" class="comment-track"></div>
     </div>
+  </section>
 
+  <div class="live-controls">
     <button id="full" class="fullscreen-button">
       ⛶ Full Screen
     </button>
-  </section>
+  </div>
 `;
 
   const stage=document.getElementById("liveStage");
