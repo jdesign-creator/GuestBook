@@ -397,5 +397,111 @@ body:has(.live-show) footer {
     }
 }
 
+/* =====================================
+   FULLSCREEN LIVE SHOW
+===================================== */
 
+/* Remove page scrolling */
+html:has(.live-show),
+body:has(.live-show) {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+/* Hide normal website navigation */
+body:has(.live-show) .topbar,
+body:has(.live-show) footer {
+  display: none !important;
+}
+
+/* Remove the normal page container spacing */
+body:has(.live-show) #app {
+  width: 100%;
+  height: 100dvh;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+/* Full-window slideshow */
+.live-show {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100vh;
+  height: 100dvh;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  background: #000;
+}
+
+/* Media stage fills the entire window */
+.live-stage {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #000;
+}
+
+/* Photos and videos fill the screen */
+.live-media {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  object-position: center;
+  background: #000;
+}
+
+/* Floating comments overlay */
+.comment-ticker {
+  position: absolute;
+  z-index: 10;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  width: 100%;
+  overflow: hidden;
+  padding: 18px 0;
+  background: linear-gradient(
+    to top,
+    rgba(0, 0, 0, 0.85),
+    rgba(0, 0, 0, 0.45),
+    transparent
+  );
+  pointer-events: none;
+}
+
+/* Horizontal scrolling comments */
+.comment-track {
+  display: flex;
+  width: max-content;
+  white-space: nowrap;
+  animation: commentsMoveRight 35s linear infinite;
+}
+
+.comment-ticker-text {
+  flex-shrink: 0;
+  padding-right: 50px;
+  color: #fff;
+  font-size: clamp(16px, 2vw, 28px);
+  font-weight: 500;
+  text-shadow: 0 2px 5px #000;
+}
+
+@keyframes commentsMoveRight {
+  from {
+    transform: translateX(-50%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
 
