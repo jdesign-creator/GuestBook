@@ -367,23 +367,216 @@ async function adminPage(){
   box.querySelector("#refresh").onclick=loadComments;loadComments();
 }
 
+
 async function livePage(){
-  pageShell("Live event slideshow","Admin sign-in is required because the live gallery contains private event media.");
+  pageShell("Live Photos Slideshow");
+
+  // Admin login remains unchanged
   if(!adminToken){
-    const login=el("section",{class:"panel"});login.innerHTML=`<h2>Admin sign-in</h2><label>Admin password</label><input id="livePw" type="password"><button id="liveLogin">Sign in and open slideshow</button>`;app.append(login);
-    login.querySelector("#liveLogin").onclick=async()=>{try{const x=await api("/api/admin/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({password:login.querySelector("#livePw").value})});adminToken=x.token;sessionStorage.setItem("eventAdminToken",adminToken);livePage()}catch(e){showStatus(e.message,true)}};return;
+    const login=el("section",{class:"panel"});
+    login.innerHTML=`
+      <h2>Admin sign-in</h2>
+      <label>Admin password</label>
+      <input id="livePw" type="password">
+      <button id="liveLogin">Sign in and open slideshow</button>
+    `;
+    app.append(login);
+
+    login.querySelector("#liveLogin").onclick=async()=>{
+      try{
+        const x=await api("/api/admin/login",{
+          method:"POST",
+          headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({
+            password:login.querySelector("#livePw").value
+          })
+        });
+
+        adminToken=x.token;
+        sessionStorage.setItem("eventAdminToken",adminToken);
+        livePage();
+      }catch(e){
+        showStatus(e.message,true);
+      }
+    };
+    return;
   }
-  app.innerHTML+=`<section class="panel"><div id="liveStage"><div class="muted">Waiting for guest uploads…</div><div id="comments"></div></div><div class="actions"><button id="prev" class="secondary">Previous</button><button id="next">Next</button><button id="pause" class="secondary">Pause slideshow</button><button id="full">Full screen</button></div><p id="liveCount" class="small"></p></section>`;
-  const stage=document.getElementById("liveStage"), comments=document.getElementById("comments");
-  async function refresh(){try{const data=await api("/api/live");mediaItems=data.media;comments.innerHTML="";data.comments.slice(-5).forEach(c=>{const x=el("div",{class:"comment"});x.textContent=(c.name?c.name+": ":"")+c.message;comments.append(x)});document.getElementById("liveCount").textContent=`${mediaItems.length} media item(s) · Auto-refreshing`;
-    if(mediaItems.length){if(liveIndex>=mediaItems.length)liveIndex=0;await showCurrent()}
-  }catch(e){showStatus(e.message,true)}}
-  async function showCurrent(){const item=mediaItems[liveIndex];if(!item)return;stage.querySelectorAll("#liveMedia").forEach(x=>x.remove());const r=await fetch(API+"/api/media/"+item.id,{headers:{Authorization:"Bearer "+adminToken}});if(!r.ok)throw Error("Unable to load private media.");const blob=await r.blob();const url=URL.createObjectURL(blob);let node;if(item.mimeType?.startsWith("video/")){node=el("video",{id:"liveMedia",controls:"",autoplay:"",playsinline:""});node.src=url}else{node=el("img",{id:"liveMedia"});node.src=url}stage.insertBefore(node,comments)}
-  document.getElementById("prev").onclick=()=>{if(mediaItems.length){liveIndex=(liveIndex-1+mediaItems.length)%mediaItems.length;showCurrent()}};
-  document.getElementById("next").onclick=()=>{if(mediaItems.length){liveIndex=(liveIndex+1)%mediaItems.length;showCurrent()}};
-  let paused=false;document.getElementById("pause").onclick=e=>{paused=!paused;e.target.textContent=paused?"Resume slideshow":"Pause slideshow"};
-  document.getElementById("full").onclick=()=>stage.requestFullscreen?.();
-  refresh();setInterval(refresh,7000);liveTimer=setInterval(()=>{if(!paused&&mediaItems.length){liveIndex=(liveIndex+1)%mediaItems.length;showCurrent()}},9000);
+
+  // Slideshow layout
+  app.innerHTML=`
+    <section class="live-show">
+      <div id="liveStage" class="live-stage"></div>
+
+      <div class="comment-ticker">
+        <div id="commentTrack" class="comment-track"></div>
+      </div>
+    </section>
+  `;
+
+  const stage=document.getElementById("liveStage");
+  const commentTrack=document.getElementById("commentTrack");
+
+  let paused=false;
+  let slideIndex=0;
+  let currentObjectUrl=null;
+  let advancing=false;
+  let waitingTimer=null;
+  let refreshTimer=null;
+  let mediaItems=[];
+
+  function releaseCurrentMedia(){
+    if(waitingTimer){
+      clearTimeout(waitingTimer);
+      waitingTimer=null;
+    }
+
+    if(currentObjectUrl){
+      URL.revokeObjectURL(currentObjectUrl);
+      currentObjectUrl=null;
+    }
+  }
+
+  function updateComments(comments){
+    commentTrack.innerHTML="";
+
+    if(!comments.length)return;
+
+    // One continuous line containing all comments
+    const message=comments.map(c=>
+      `${c.name ? c.name+": " : ""}${c.message}`
+    ).join("     ✦     ");
+
+    // Duplicate content for seamless scrolling
+    for(let i=0;i<2;i++){
+      const span=document.createElement("span");
+      span.className="comment-ticker-text";
+      span.textContent=message+"     ✦     ";
+      commentTrack.appendChild(span);
+    }
+  }
+
+  async function refreshData(){
+    try{
+      const data=await api("/api/live");
+
+      mediaItems=data.media||[];
+      updateComments(data.comments||[]);
+
+      if(slideIndex>=mediaItems.length){
+        slideIndex=0;
+      }
+    }catch(e){
+      console.error("Live slideshow refresh failed:",e);
+    }
+  }
+
+  async function showNextMedia(){
+    if(advancing)return;
+    advancing=true;
+
+    try{
+      if(!mediaItems.length){
+        releaseCurrentMedia();
+        stage.innerHTML="";
+        slideIndex=0;
+        return;
+      }
+
+      const item=mediaItems[slideIndex];
+
+      // Move to next item; loop to the beginning
+      slideIndex=(slideIndex+1)%mediaItems.length;
+
+      releaseCurrentMedia();
+
+      const response=await fetch(API+"/api/media/"+item.id,{
+        headers:{Authorization:"Bearer "+adminToken}
+      });
+
+      if(!response.ok){
+        throw Error("Unable to load media.");
+      }
+
+      const blob=await response.blob();
+      currentObjectUrl=URL.createObjectURL(blob);
+
+      let mediaElement;
+
+      if(item.mimeType?.startsWith("video/")){
+        mediaElement=document.createElement("video");
+        mediaElement.autoplay=true;
+        mediaElement.muted=true;
+        mediaElement.playsInline=true;
+        mediaElement.controls=false;
+      }else{
+        mediaElement=document.createElement("img");
+        mediaElement.alt="Wedding guest photo";
+      }
+
+      mediaElement.className="live-media slide-in";
+      mediaElement.id="liveMedia";
+      mediaElement.src=currentObjectUrl;
+
+      stage.innerHTML="";
+      stage.appendChild(mediaElement);
+
+      if(item.mimeType?.startsWith("video/")){
+        mediaElement.onended=()=>{
+          advancing=false;
+          showNextMedia();
+        };
+
+        mediaElement.onerror=()=>{
+          advancing=false;
+          showNextMedia();
+        };
+
+        try{
+          await mediaElement.play();
+        }catch(e){
+          console.error("Video playback failed:",e);
+          advancing=false;
+          showNextMedia();
+        }
+
+      }else{
+        mediaElement.onload=()=>{
+          waitingTimer=setTimeout(()=>{
+            advancing=false;
+            showNextMedia();
+          },10000);
+        };
+
+        mediaElement.onerror=()=>{
+          advancing=false;
+          showNextMedia();
+        };
+      }
+
+    }catch(e){
+      console.error("Slideshow media error:",e);
+      releaseCurrentMedia();
+      waitingTimer=setTimeout(()=>{
+        advancing=false;
+        showNextMedia();
+      },1000);
+    }
+  }
+
+  // Start slideshow
+  await refreshData();
+  advancing=false;
+  showNextMedia();
+
+  // Refresh new uploads and comments without interrupting current media
+  refreshTimer=setInterval(refreshData,7000);
+
+  // Clean up if the page is unloaded
+  window.addEventListener("beforeunload",()=>{
+    clearInterval(refreshTimer);
+    releaseCurrentMedia();
+  });
 }
+
 
 (async()=>{try{if(!API||API.includes("YOUR-CLOUD"))throw Error("Set API_BASE in public/config.js to your Cloud Run URL.");if(page==="admin")await adminPage();else if(page==="live")await livePage();else await guestPage()}catch(e){app.innerHTML=`<section class="panel"><h1>Unable to load event</h1><p class="muted"></p></section>`;app.querySelector("p").textContent=e.message}})();
