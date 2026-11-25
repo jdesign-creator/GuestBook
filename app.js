@@ -121,12 +121,36 @@ async function guestPage(){
     if(cameraStream){cameraStream.getTracks().forEach(track=>track.stop());cameraStream=null;}
     camera.srcObject=null;
   }
+
+  
+let previousScrollY = 0;
+
+function setCameraFullscreen(active) {
+    if (active) {
+        if (!document.body.classList.contains("camera-active")) {
+            previousScrollY = window.scrollY;
+            document.body.style.top = `-${previousScrollY}px`;
+        }
+
+        document.body.classList.add("camera-active");
+        mode.classList.add("camera-fullscreen");
+    } else {
+        document.body.classList.remove("camera-active");
+        mode.classList.remove("camera-fullscreen");
+
+        document.body.style.top = "";
+        window.scrollTo(0, previousScrollY);
+    }
+}
+
   function stopTimer(){if(timerHandle){clearInterval(timerHandle);timerHandle=null;}}
   function clearPreviewUrls(){
     if(photoUrl){URL.revokeObjectURL(photoUrl);photoUrl="";}
     if(videoUrl){URL.revokeObjectURL(videoUrl);videoUrl="";}
   }
+  
   function resetCapture(){
+    setCameraFullscreen(false);
     stopMirroredRecordingStream();
     stopTimer();
     if(recorderInstance && recorderInstance.state!=="inactive"){try{recorderInstance.onstop=null;recorderInstance.stop()}catch{}}
@@ -139,6 +163,7 @@ async function guestPage(){
     cameraFrame.classList.toggle("hidden",currentMode!=="photo"||!frameOptions[selectedFrame]?.url);
     $("#recordTimer").classList.add("hidden");
   }
+  
   async function openCamera(withAudio){
     stopCamera();
     if(!navigator.mediaDevices?.getUserMedia)throw Error("Camera access is not supported in this browser. Please use a recent version of Chrome or Safari.");
@@ -146,6 +171,7 @@ async function guestPage(){
     camera.srcObject=cameraStream;
     await new Promise((resolve,reject)=>{if(camera.readyState>=1)return resolve();camera.onloadedmetadata=resolve;camera.onerror=()=>reject(Error("Unable to start camera preview."));});
     await camera.play();
+    setCameraFullscreen(true);
     camera.classList.toggle("mirrored", facing === "user");
   }
   function setFrame(index){
@@ -203,7 +229,11 @@ async function guestPage(){
     photoBlob=await new Promise(resolve=>shot.toBlob(resolve,"image/jpeg",.94));
     if(!photoBlob)return showStatus("Unable to capture this photo. Please try again.",true);
     photoUrl=URL.createObjectURL(photoBlob);$("#photoResult").src=photoUrl;
-    stopCamera();cameraStage.classList.add("hidden");$("#cameraActions").classList.add("hidden");photoReview.classList.remove("hidden");
+    stopCamera();
+    setCameraFullscreen(false);
+    cameraStage.classList.add("hidden");
+    $("#cameraActions").classList.add("hidden");
+    photoReview.classList.remove("hidden");
     $("#captureHint").textContent="Review your photo. You can retake it or upload it to the event gallery.";
   };
   $("#retakePhoto").onclick=async()=>{resetCapture();try{await openCamera(false)}catch(e){showStatus(e.message,true)}};
@@ -295,7 +325,11 @@ function stopMirroredRecordingStream() {
           if(videoBlob.size>500*1024*1024){videoBlob=null;showStatus("This video exceeds 500 MB. Please record a shorter video.",true);return;}
           videoUrl=URL.createObjectURL(videoBlob);const player=$("#videoResult");player.src=videoUrl;player.currentTime=0;player.play().catch(()=>{});
           $("#videoDetails").textContent=`Video ready · ${(videoBlob.size/1024/1024).toFixed(1)} MB`;
-          stopCamera();cameraStage.classList.add("hidden");$("#cameraActions").classList.add("hidden");videoReview.classList.remove("hidden");
+          stopCamera();
+          setCameraFullscreen(false);
+          cameraStage.classList.add("hidden");
+          $("#cameraActions").classList.add("hidden");
+          videoReview.classList.remove("hidden");
           $("#captureHint").textContent="Your video is previewing on loop. Retake it or upload it to the event gallery.";
         };
         
